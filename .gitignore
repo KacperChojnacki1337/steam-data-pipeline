@@ -1,0 +1,25 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.env
+
+# Klucze i poświadczenia (KRYTYCZNE)
+*.json
+secrets/
+.aws/
+.gcp/
+
+# Inne
+.DS_Store
