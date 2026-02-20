@@ -1,0 +1,4 @@
+google-cloud-bigquery
+google-auth
+requests
+boto3
