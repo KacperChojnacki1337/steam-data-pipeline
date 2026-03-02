@@ -106,3 +106,40 @@ resource "aws_iam_role_policy" "lambda_policy" {
     ]
   })
 }
+
+# --- ZIP: Packaging the Code ---
+data "archive_file" "lambda_code_zip" {
+  type        = "zip"
+  source_file = "../lambda/producer/producer_lambda.py"
+  output_path = "producer_lambda.zip"
+}
+
+# --- ZIP: Packaging the Layer (Dependencies) ---
+data "archive_file" "lambda_layer_zip" {
+  type        = "zip"
+  source_dir  = "../lambda/producer/layer"
+  output_path = "lambda_layer.zip"
+}
+
+# --- Lambda Layer ---
+resource "aws_lambda_layer_version" "python_libs" {
+  filename            = data.archive_file.lambda_layer_zip.output_path
+  layer_name          = "steam_tracker_libs"
+  compatible_runtimes = ["python3.11"]
+}
+
+# --- Lambda Function ---
+resource "aws_lambda_function" "steam_producer" {
+  filename         = data.archive_file.lambda_code_zip.output_path
+  function_name    = "steam_price_producer"
+  role             = aws_iam_role.lambda_exec_role.arn
+  handler          = "producer_lambda.lambda_handler" # File name . Function name
+  runtime          = "python3.11"
+  timeout          = 60 # Increased because scraping and BQ inserts take time
+  memory_size      = 256
+
+layers = [aws_lambda_layer_version.python_libs.arn]
+
+  source_code_hash = data.archive_file.lambda_code_zip.output_base64sha256
+}
+
