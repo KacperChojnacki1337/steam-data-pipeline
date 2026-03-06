@@ -25,21 +25,52 @@ resource "aws_dynamodb_table" "inventory_metadata" {
 }
 
 # ==========================================
-# 2. GCP: BigQuery - Data Warehouse
+# 2. GCP: BigQuery - Medallion Architecture
 # ==========================================
 
-resource "google_bigquery_dataset" "steam_dataset" {
-  dataset_id                  = "steam_analytics"
-  friendly_name               = "Steam Price Analytics"
-  description                 = "Storage for facts and dimensions regarding Steam prices"
+# --- BRONZE LAYER: Raw Data Ingestion ---
+resource "google_bigquery_dataset" "raw_dataset" {
+  dataset_id                  = "steam_raw"
+  friendly_name               = "Steam Raw Data"
+  description                 = "Bronze Layer: Raw ingestion from AWS and Steam API"
   location                    = "EU"
   delete_contents_on_destroy  = false
 }
 
-# --- FACT TABLE: Market Price History ---
-resource "google_bigquery_table" "fact_price_history" {
-  dataset_id = google_bigquery_dataset.steam_dataset.dataset_id
-  table_id   = "fact_price_history"
+# --- GOLD LAYER: Analytics Ready Data ---
+resource "google_bigquery_dataset" "marts_dataset" {
+  dataset_id                  = "steam_marts"
+  friendly_name               = "Steam Analytics Marts"
+  description                 = "Gold Layer: Cleaned and modeled Star Schema (Kimball)"
+  location                    = "EU"
+  delete_contents_on_destroy  = false
+}
+
+# --- RAW TABLE: Assets Ingestion (Bronze) ---
+resource "google_bigquery_table" "raw_assets" {
+  dataset_id = google_bigquery_dataset.raw_dataset.dataset_id
+  table_id   = "assets_history"
+  deletion_protection = false
+
+  schema = <<EOF
+[
+  {"name": "asset_id", "type": "STRING", "mode": "REQUIRED", "description": "Surrogate Key"},
+  {"name": "item_id", "type": "STRING", "mode": "REQUIRED", "description": "Natural Key"},
+  {"name": "buy_date", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "buy_price", "type": "FLOAT", "mode": "NULLABLE"},
+  {"name": "buy_currency", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "quantity", "type": "INTEGER", "mode": "NULLABLE"},
+  {"name": "category", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "purchase_channel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "last_updated", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]
+EOF
+}
+
+# --- RAW TABLE: Price History (Bronze) ---
+resource "google_bigquery_table" "raw_prices" {
+  dataset_id = google_bigquery_dataset.raw_dataset.dataset_id
+  table_id   = "prices_history"
   deletion_protection = false
 
   time_partitioning {
@@ -52,65 +83,6 @@ resource "google_bigquery_table" "fact_price_history" {
   {"name": "item_id", "type": "STRING", "mode": "REQUIRED"},
   {"name": "price_usd", "type": "FLOAT", "mode": "NULLABLE"},
   {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"}
-]
-EOF
-}
-
-# --- DIMENSION TABLE: User Assets (Surrogate Key) ---
-resource "google_bigquery_table" "dim_assets" {
-  dataset_id = google_bigquery_dataset.steam_dataset.dataset_id
-  table_id   = "dim_assets"
-  deletion_protection = false
-
-  schema = <<EOF
-[
-  {
-    "name": "asset_id",
-    "type": "STRING",
-    "mode": "REQUIRED",
-    "description": "Surrogate Key (Hash of item_id + buy_date)"
-  },
-  {
-    "name": "item_id",
-    "type": "STRING",
-    "mode": "REQUIRED",
-    "description": "Natural Key (Item Name)"
-  },
-  {
-    "name": "buy_date",
-    "type": "STRING",
-    "mode": "REQUIRED"
-  },
-  {
-    "name": "buy_price",
-    "type": "FLOAT",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "buy_currency",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "quantity",
-    "type": "INTEGER",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "category",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "purchase_channel",
-    "type": "STRING",
-    "mode": "NULLABLE"
-  },
-  {
-    "name": "last_updated",
-    "type": "TIMESTAMP",
-    "mode": "NULLABLE"
-  }
 ]
 EOF
 }
@@ -201,12 +173,11 @@ resource "aws_lambda_function" "steam_producer" {
 
   layers = [aws_lambda_layer_version.python_libs.arn]
 
-  # Zmienne środowiskowe - ułatwiają rozwój kodu
   environment {
     variables = {
       DYNAMODB_TABLE = aws_dynamodb_table.inventory_metadata.name
       GCP_PROJECT_ID = "steam-tracker-portfolio"
-      BQ_DATASET     = google_bigquery_dataset.steam_dataset.dataset_id
+      BQ_DATASET     = google_bigquery_dataset.raw_dataset.dataset_id # Points to steam_raw
       GCP_KEY_PARAM  = "/steam-tracker/gcp-key"
     }
   }
