@@ -24,3 +24,5 @@ secrets/
 
 # Inne
 .DS_Store
+
+lambda/producer/layer/python/
