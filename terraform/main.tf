@@ -1,21 +1,18 @@
-# ==========================================
 # 1. AWS: DynamoDB - Inventory (Source of Truth)
 # ==========================================
 resource "aws_dynamodb_table" "inventory_metadata" {
   name         = "steam_inventory_metadata"
   billing_mode = "PAY_PER_REQUEST"
   
-  hash_key  = "item_id"
-  range_key = "buy_date"
+  hash_key = "asset_id"
 
   attribute {
-    name = "item_id"
+    name = "asset_id"
     type = "S"
   }
 
-  attribute {
-    name = "buy_date"
-    type = "S"
+  point_in_time_recovery {
+    enabled = true
   }
 
   tags = {
