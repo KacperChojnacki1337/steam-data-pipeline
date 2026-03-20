@@ -31,30 +31,39 @@ def lambda_handler(event, context):
     inventory_rows = []
     price_rows = []
 
-    # Iterate through records received from Redpanda
+# Iterate through records received from Redpanda
     for topic_partition, records in event['records'].items():
-        topic = topic_partition.split('-')[0]
         
         for record in records:
             # Decode payload from Base64
             raw_payload = base64.b64decode(record['value']).decode('utf-8')
             payload = json.loads(raw_payload)
+            redpanda_time = payload.get('timestamp')
             
-            if 'db-inventory-events' in topic:
-                # Add surrogate key if not present in the message
-                if 'asset_id' not in payload:
-                    payload['asset_id'] = generate_asset_id(
-                        payload['item_id'], 
-                        payload.get('buy_date', 'unknown')
-                    )
-                # Ensure 'last_updated' matches BQ schema (last_updated vs timestamp)
-                payload['last_updated'] = payload.get('timestamp')
-                # Remove extra fields not in BQ schema if necessary
-                inventory_rows.append(payload)
+            if 'db-inventory-events' in topic_partition:
+                asset_id = payload.get('asset_id')
+                if not asset_id:
+                    asset_id = generate_asset_id(payload.get('item_id'), payload.get('buy_date','unknown'))
+                    inventory_rows.append({
+                    'asset_id': asset_id,
+                    'item_id': payload.get('item_id'),
+                    'quantity': payload.get('quantity'),
+                    'buy_price': payload.get('buy_price'),
+                    'buy_currency': payload.get('buy_currency'),
+                    'buy_date': payload.get('buy_date'),
+                    'category': payload.get('category'),
+                    'purchase_channel': payload.get('purchase_channel'),
+                    'last_updated': redpanda_time  
+                })
                 
-            elif 'market-price-events' in topic:
-                price_rows.append(payload)
-
+            elif 'market-price-events' in topic_partition:
+                # Budujemy czysty wiersz dla prices_history
+                price_rows.append({
+                    'item_id': payload.get('item_id'),
+                    'price_usd': payload.get('price_usd'),
+                    'timestamp': redpanda_time  
+                })
+        
     # Load data to BigQuery
     results = {}
     if inventory_rows:

@@ -73,6 +73,7 @@ def lambda_handler(event, context):
             "buy_currency": item.get('buy_currency', 'PLN'),
             "quantity": int(item.get('quantity', 1)),
             "category": item.get('category', 'Skin'),
+            "purchase_channel": item.get('purchase_channel', 'Unknown'),
             "timestamp": current_ts
         }
         producer.produce(
