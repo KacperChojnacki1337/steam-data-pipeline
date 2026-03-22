@@ -1,9 +1,10 @@
+# ==========================================
 # 1. AWS: DynamoDB - Inventory (Source of Truth)
 # ==========================================
 resource "aws_dynamodb_table" "inventory_metadata" {
   name         = "steam_inventory_metadata"
   billing_mode = "PAY_PER_REQUEST"
-  
+
   hash_key = "asset_id"
 
   attribute {
@@ -25,25 +26,25 @@ resource "aws_dynamodb_table" "inventory_metadata" {
 # 2. GCP: BigQuery - Medallion Architecture
 # ==========================================
 
-# --- BRONZE LAYER: Raw Data Ingestion ---
+# --- Bronze Layer: Raw Data Ingestion ---
 resource "google_bigquery_dataset" "raw_dataset" {
-  dataset_id                  = "steam_raw"
-  friendly_name               = "Steam Raw Data"
-  description                 = "Bronze Layer: Raw ingestion from AWS and Steam API"
-  location                    = "EU"
-  delete_contents_on_destroy  = false
+  dataset_id                 = "steam_raw"
+  friendly_name              = "Steam Raw Data"
+  description                = "Bronze Layer: Raw ingestion from AWS and Steam API"
+  location                   = "EU"
+  delete_contents_on_destroy = false
 }
 
-# --- GOLD LAYER: Analytics Ready Data ---
+# --- Gold Layer: Analytics Ready Data ---
 resource "google_bigquery_dataset" "marts_dataset" {
-  dataset_id                  = "steam_marts"
-  friendly_name               = "Steam Analytics Marts"
-  description                 = "Gold Layer: Cleaned and modeled Star Schema (Kimball)"
-  location                    = "EU"
-  delete_contents_on_destroy  = false
+  dataset_id                 = "steam_marts"
+  friendly_name              = "Steam Analytics Marts"
+  description                = "Gold Layer: Cleaned and modeled Star Schema (Kimball)"
+  location                   = "EU"
+  delete_contents_on_destroy = false
 }
 
-# --- RAW TABLE: Assets Ingestion (Bronze) ---
+# --- Raw Table: Assets History (Bronze) ---
 resource "google_bigquery_table" "raw_assets" {
   dataset_id          = google_bigquery_dataset.raw_dataset.dataset_id
   table_id            = "assets_history"
@@ -51,30 +52,47 @@ resource "google_bigquery_table" "raw_assets" {
 
   schema = <<EOF
 [
-  {"name": "asset_id",          "type": "STRING",    "mode": "REQUIRED", "description": "Source Key (DynamoDB UUID)"},
-  {"name": "item_id",           "type": "STRING",    "mode": "REQUIRED", "description": "Natural Key - skin market name"},
-  {"name": "buy_date",          "type": "DATE",      "mode": "NULLABLE"},
-  {"name": "buy_price",         "type": "FLOAT",     "mode": "NULLABLE"},
-  {"name": "buy_currency",      "type": "STRING",    "mode": "NULLABLE"},
-  {"name": "quantity",          "type": "INTEGER",   "mode": "NULLABLE"},
-  {"name": "category",          "type": "STRING",    "mode": "NULLABLE"},
-  {"name": "purchase_channel",  "type": "STRING",    "mode": "NULLABLE"},
-  {"name": "last_updated",      "type": "TIMESTAMP", "mode": "REQUIRED"}
+  {"name": "asset_id",         "type": "STRING",    "mode": "REQUIRED", "description": "Source Key (DynamoDB UUID)"},
+  {"name": "item_id",          "type": "STRING",    "mode": "REQUIRED", "description": "Natural Key - skin market name"},
+  {"name": "buy_date",         "type": "DATE",      "mode": "NULLABLE"},
+  {"name": "buy_price",        "type": "FLOAT",     "mode": "NULLABLE"},
+  {"name": "buy_currency",     "type": "STRING",    "mode": "NULLABLE"},
+  {"name": "quantity",         "type": "INTEGER",   "mode": "NULLABLE"},
+  {"name": "category",         "type": "STRING",    "mode": "NULLABLE"},
+  {"name": "purchase_channel", "type": "STRING",    "mode": "NULLABLE"},
+  {"name": "last_updated",     "type": "TIMESTAMP", "mode": "REQUIRED"}
 ]
 EOF
 }
 
-# --- RAW TABLE: Price History (Bronze) ---
+# --- Raw Table: Price History (Bronze) ---
 resource "google_bigquery_table" "raw_prices" {
-  dataset_id = google_bigquery_dataset.raw_dataset.dataset_id
-  table_id   = "prices_history"
+  dataset_id          = google_bigquery_dataset.raw_dataset.dataset_id
+  table_id            = "prices_history"
   deletion_protection = false
 
   schema = <<EOF
 [
-  {"name": "item_id", "type": "STRING", "mode": "REQUIRED"},
-  {"name": "price_usd", "type": "FLOAT", "mode": "NULLABLE"},
+  {"name": "item_id",   "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "price_usd", "type": "FLOAT",     "mode": "NULLABLE"},
   {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]
+EOF
+}
+
+# --- Raw Table: Exchange Rates (Bronze) ---
+resource "google_bigquery_table" "raw_exchange_rates" {
+  dataset_id          = google_bigquery_dataset.raw_dataset.dataset_id
+  table_id            = "exchange_rates"
+  deletion_protection = false
+
+  schema = <<EOF
+[
+  {"name": "from_currency", "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "to_currency",   "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "rate",          "type": "FLOAT",     "mode": "REQUIRED"},
+  {"name": "source",        "type": "STRING",    "mode": "NULLABLE"},
+  {"name": "timestamp",     "type": "TIMESTAMP", "mode": "REQUIRED"}
 ]
 EOF
 }
@@ -83,7 +101,7 @@ EOF
 # 3. IAM: Security and Permissions
 # ==========================================
 
-# Policy allowing the Consumer Role to read the Redpanda credentials from Secrets Manager
+# Policy allowing the Consumer Role to read Redpanda credentials from Secrets Manager
 resource "aws_iam_role_policy" "consumer_secrets_policy" {
   name = "consumer_secrets_policy"
   role = aws_iam_role.consumer_exec_role.id
@@ -97,7 +115,6 @@ resource "aws_iam_role_policy" "consumer_secrets_policy" {
     }]
   })
 }
-# ----------------------
 
 resource "aws_iam_role" "lambda_exec_role" {
   name = "steam_tracker_lambda_role"
@@ -133,7 +150,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Action = [
           "ssm:GetParameter",
-          "ssm:GetParameters"    # ← dodane, batch fetch wymaga tej akcji
+          "ssm:GetParameters"
         ]
         Effect = "Allow"
         Resource = [
@@ -154,9 +171,8 @@ resource "aws_iam_role_policy" "lambda_policy" {
   })
 }
 
-# --- IAM Role for Consumer (needs SSM and BigQuery access) ---
 resource "aws_secretsmanager_secret" "redpanda_creds" {
-  name = "steam-tracker/redpanda-creds-v2" 
+  name = "steam-tracker/redpanda-creds-v2"
 }
 
 resource "aws_secretsmanager_secret_version" "redpanda_creds_val" {
@@ -180,7 +196,6 @@ resource "aws_iam_role" "consumer_exec_role" {
   })
 }
 
-# Basic Lambda Execution Policy + SSM Access
 resource "aws_iam_role_policy_attachment" "consumer_basic" {
   role       = aws_iam_role.consumer_exec_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -200,14 +215,16 @@ resource "aws_iam_role_policy" "consumer_ssm_policy" {
   })
 }
 
-# --- THE BRIDGE: Redpanda (MSK/Kafka) Event Source Mapping ---
-# Note: AWS Lambda needs these secrets to authenticate with Redpanda
+# ==========================================
+# 4. Redpanda: Event Source Mappings
+# ==========================================
+
 # Trigger for Inventory Events
 resource "aws_lambda_event_source_mapping" "redpanda_inventory_trigger" {
   function_name     = aws_lambda_function.steam_consumer.arn
   topics            = ["db-inventory-events"]
   starting_position = "LATEST"
-  
+
   self_managed_event_source {
     endpoints = {
       KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
@@ -215,19 +232,17 @@ resource "aws_lambda_event_source_mapping" "redpanda_inventory_trigger" {
   }
 
   source_access_configuration {
-    type  = "SASL_SCRAM_256_AUTH"
-    uri   = aws_secretsmanager_secret.redpanda_creds.arn
+    type = "SASL_SCRAM_256_AUTH"
+    uri  = aws_secretsmanager_secret.redpanda_creds.arn
   }
 }
-
-
 
 # Trigger for Market Price Events
 resource "aws_lambda_event_source_mapping" "redpanda_prices_trigger" {
   function_name     = aws_lambda_function.steam_consumer.arn
   topics            = ["market-price-events"]
   starting_position = "LATEST"
-  
+
   self_managed_event_source {
     endpoints = {
       KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
@@ -235,15 +250,31 @@ resource "aws_lambda_event_source_mapping" "redpanda_prices_trigger" {
   }
 
   source_access_configuration {
-    type  = "SASL_SCRAM_256_AUTH"
-    uri   = aws_secretsmanager_secret.redpanda_creds.arn
+    type = "SASL_SCRAM_256_AUTH"
+    uri  = aws_secretsmanager_secret.redpanda_creds.arn
   }
 }
 
+# Trigger for Exchange Rate Events
+resource "aws_lambda_event_source_mapping" "redpanda_exchange_rate_trigger" {
+  function_name     = aws_lambda_function.steam_consumer.arn
+  topics            = ["exchange-rate-events"]
+  starting_position = "LATEST"
 
+  self_managed_event_source {
+    endpoints = {
+      KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+    }
+  }
+
+  source_access_configuration {
+    type = "SASL_SCRAM_256_AUTH"
+    uri  = aws_secretsmanager_secret.redpanda_creds.arn
+  }
+}
 
 # ==========================================
-# 4. Lambda: Packaging and Deployment
+# 5. Lambda: Packaging and Deployment
 # ==========================================
 
 data "archive_file" "lambda_code_zip" {
@@ -265,29 +296,29 @@ resource "aws_lambda_layer_version" "python_libs" {
 }
 
 resource "aws_lambda_function" "steam_producer" {
-  filename         = data.archive_file.lambda_code_zip.output_path
-  function_name    = "steam_price_producer"
-  role             = aws_iam_role.lambda_exec_role.arn
-  handler          = "producer_lambda.lambda_handler"
-  runtime          = "python3.11"
-  timeout          = 60
-  memory_size      = 256
+  filename      = data.archive_file.lambda_code_zip.output_path
+  function_name = "steam_price_producer"
+  role          = aws_iam_role.lambda_exec_role.arn
+  handler       = "producer_lambda.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 60
+  memory_size   = 256
 
   layers = [aws_lambda_layer_version.python_libs.arn]
 
+  source_code_hash = data.archive_file.lambda_code_zip.output_base64sha256
+
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.inventory_metadata.name
-      GCP_PROJECT_ID = "steam-tracker-portfolio"
-      BQ_DATASET     = google_bigquery_dataset.raw_dataset.dataset_id # Points to steam_raw
-      GCP_KEY_PARAM  = "/steam-tracker/gcp-key"
-      RP_BOOTSTRAP_PARAM  = aws_ssm_parameter.redpanda_bootstrap.name
-      RP_USER_PARAM       = aws_ssm_parameter.redpanda_user.name
-      RP_PASS_PARAM       = aws_ssm_parameter.redpanda_pass.name
+      DYNAMODB_TABLE     = aws_dynamodb_table.inventory_metadata.name
+      GCP_PROJECT_ID     = "steam-tracker-portfolio"
+      BQ_DATASET         = google_bigquery_dataset.raw_dataset.dataset_id
+      GCP_KEY_PARAM      = "/steam-tracker/gcp-key"
+      RP_BOOTSTRAP_PARAM = aws_ssm_parameter.redpanda_bootstrap.name
+      RP_USER_PARAM      = aws_ssm_parameter.redpanda_user.name
+      RP_PASS_PARAM      = aws_ssm_parameter.redpanda_pass.name
     }
   }
-
-  source_code_hash = data.archive_file.lambda_code_zip.output_base64sha256
 }
 
 # --- Redpanda Connection Details in SSM ---
@@ -295,7 +326,7 @@ resource "aws_lambda_function" "steam_producer" {
 resource "aws_ssm_parameter" "redpanda_bootstrap" {
   name  = "/steam-tracker/redpanda-bootstrap"
   type  = "SecureString"
-  value = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092" 
+  value = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
 }
 
 resource "aws_ssm_parameter" "redpanda_user" {
@@ -310,19 +341,16 @@ resource "aws_ssm_parameter" "redpanda_pass" {
   value = var.redpanda_password
 }
 
-
 # ==========================================
-# 5. Consumer Lambda: From Redpanda to BigQuery
+# 6. Consumer Lambda: From Redpanda to BigQuery
 # ==========================================
 
-# ZIP the consumer code
 data "archive_file" "consumer_zip" {
   type        = "zip"
   source_file = "../lambda/consumer/consumer_lambda.py"
   output_path = "consumer_lambda.zip"
 }
 
-# Lambda Function: Consumer
 resource "aws_lambda_function" "steam_consumer" {
   filename      = data.archive_file.consumer_zip.output_path
   function_name = "steam_bq_consumer"
@@ -334,6 +362,8 @@ resource "aws_lambda_function" "steam_consumer" {
 
   layers = [aws_lambda_layer_version.python_libs.arn]
 
+  source_code_hash = data.archive_file.consumer_zip.output_base64sha256
+
   environment {
     variables = {
       GCP_PROJECT_ID = "steam-tracker-portfolio"
@@ -342,12 +372,3 @@ resource "aws_lambda_function" "steam_consumer" {
     }
   }
 }
-
-
-
-
-
-
-
-
-
