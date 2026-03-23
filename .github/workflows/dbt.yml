@@ -73,6 +73,5 @@ jobs:
           name: dbt-docs
           path: dbt/steam_tracker/target/
           retention-days: 7
-```
 
 
