@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: steam_raw
+    project: steam-tracker-portfolio
+    dataset: steam_raw
+    tables:
+      - name: assets_history
+      - name: prices_history
+      - name: exchange_rates
