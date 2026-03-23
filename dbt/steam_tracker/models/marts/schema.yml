@@ -29,3 +29,6 @@ models:
       - name: usd_pln_rate
         tests:
           - not_null
+
+
+          
