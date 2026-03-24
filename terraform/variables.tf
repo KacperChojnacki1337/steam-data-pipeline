@@ -1,13 +1,13 @@
 variable "aws_region" {
-  description = "AWS region for lambda and dynamo"
+  description = "AWS region for Lambda and DynamoDB"
   type        = string
-  default     = "eu-central-1" # Frankfurt
+  default     = "eu-central-1"
 }
 
 variable "gcp_region" {
-  description = "Region for GCP"
+  description = "GCP region for BigQuery"
   type        = string
-  default     = "europe-west3" # Frankfurt
+  default     = "europe-west3"
 }
 
 variable "gcp_project_id" {
@@ -24,4 +24,9 @@ variable "redpanda_password" {
   description = "Password for Redpanda lambda-producer user"
   type        = string
   sensitive   = true
+}
+
+variable "alert_email" {
+  description = "Email address for CloudWatch alarm notifications"
+  type        = string
 }
