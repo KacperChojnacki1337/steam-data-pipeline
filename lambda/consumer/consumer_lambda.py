@@ -25,9 +25,10 @@ def lambda_handler(event, context):
 
     inventory_rows = []
     price_rows = []
+    exchange_rate_rows = []
 
     # Iterate through records received from Redpanda
-    for topic_partition, records in event['records'].items():
+    for topic_partition, records in event.get('records', {}).items():
 
         for record in records:
             # Decode payload from Base64
@@ -40,7 +41,7 @@ def lambda_handler(event, context):
                 if not asset_id:
                     print(f"⚠️ Missing asset_id in payload, skipping: {payload}")
                     continue
-                inventory_rows.append({         
+                inventory_rows.append({
                     'asset_id': asset_id,
                     'item_id': payload.get('item_id'),
                     'quantity': payload.get('quantity'),
@@ -59,8 +60,18 @@ def lambda_handler(event, context):
                     'timestamp': redpanda_time
                 })
 
+            elif 'exchange-rate-events' in topic_partition:
+                exchange_rate_rows.append({
+                    'from_currency': payload.get('from_currency'),
+                    'to_currency': payload.get('to_currency'),
+                    'rate': payload.get('rate'),
+                    'source': payload.get('source'),
+                    'timestamp': redpanda_time
+                })
+
     # Load data to BigQuery
     results = {}
+
     if inventory_rows:
         table_id = f"{GCP_PROJECT_ID}.{BQ_DATASET}.assets_history"
         errors = client.insert_rows_json(table_id, inventory_rows)
@@ -70,6 +81,11 @@ def lambda_handler(event, context):
         table_id = f"{GCP_PROJECT_ID}.{BQ_DATASET}.prices_history"
         errors = client.insert_rows_json(table_id, price_rows)
         results['prices'] = "Success" if not errors else f"Errors: {errors}"
+
+    if exchange_rate_rows:
+        table_id = f"{GCP_PROJECT_ID}.{BQ_DATASET}.exchange_rates"
+        errors = client.insert_rows_json(table_id, exchange_rate_rows)
+        results['exchange_rates'] = "Success" if not errors else f"Errors: {errors}"
 
     print(f"📊 Consumer Summary: {results}")
     return results
