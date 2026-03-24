@@ -1,4 +1,11 @@
 # ==========================================
+# Locals
+# ==========================================
+locals {
+  redpanda_bootstrap = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+}
+
+# ==========================================
 # 1. AWS: DynamoDB - Inventory (Source of Truth)
 # ==========================================
 resource "aws_dynamodb_table" "inventory_metadata" {
@@ -227,7 +234,7 @@ resource "aws_lambda_event_source_mapping" "redpanda_inventory_trigger" {
 
   self_managed_event_source {
     endpoints = {
-      KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+      KAFKA_BOOTSTRAP_SERVERS = local.redpanda_bootstrap
     }
   }
 
@@ -245,7 +252,7 @@ resource "aws_lambda_event_source_mapping" "redpanda_prices_trigger" {
 
   self_managed_event_source {
     endpoints = {
-      KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+      KAFKA_BOOTSTRAP_SERVERS = local.redpanda_bootstrap
     }
   }
 
@@ -263,7 +270,7 @@ resource "aws_lambda_event_source_mapping" "redpanda_exchange_rate_trigger" {
 
   self_managed_event_source {
     endpoints = {
-      KAFKA_BOOTSTRAP_SERVERS = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+      KAFKA_BOOTSTRAP_SERVERS = local.redpanda_bootstrap
     }
   }
 
@@ -310,10 +317,8 @@ resource "aws_lambda_function" "steam_producer" {
 
   environment {
     variables = {
+      # Producer only needs DynamoDB and Redpanda — no GCP access required
       DYNAMODB_TABLE     = aws_dynamodb_table.inventory_metadata.name
-      GCP_PROJECT_ID     = "steam-tracker-portfolio"
-      BQ_DATASET         = google_bigquery_dataset.raw_dataset.dataset_id
-      GCP_KEY_PARAM      = "/steam-tracker/gcp-key"
       RP_BOOTSTRAP_PARAM = aws_ssm_parameter.redpanda_bootstrap.name
       RP_USER_PARAM      = aws_ssm_parameter.redpanda_user.name
       RP_PASS_PARAM      = aws_ssm_parameter.redpanda_pass.name
@@ -326,7 +331,7 @@ resource "aws_lambda_function" "steam_producer" {
 resource "aws_ssm_parameter" "redpanda_bootstrap" {
   name  = "/steam-tracker/redpanda-bootstrap"
   type  = "SecureString"
-  value = "d6o1vn7jkk1fce8gpuq0.any.eu-central-1.mpx.prd.cloud.redpanda.com:9092"
+  value = local.redpanda_bootstrap
 }
 
 resource "aws_ssm_parameter" "redpanda_user" {
@@ -399,11 +404,6 @@ resource "aws_lambda_permission" "allow_eventbridge" {
 # ==========================================
 # 8. CloudWatch: Alarms + SNS Notifications
 # ==========================================
-
-variable "alert_email" {
-  description = "Email address for CloudWatch alarm notifications"
-  type        = string
-}
 
 resource "aws_sns_topic" "alerts" {
   name = "steam-tracker-alerts"
