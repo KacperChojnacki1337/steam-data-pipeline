@@ -372,3 +372,26 @@ resource "aws_lambda_function" "steam_consumer" {
     }
   }
 }
+
+# ==========================================
+# 7. EventBridge: Producer Schedule
+# ==========================================
+
+resource "aws_cloudwatch_event_rule" "producer_schedule" {
+  name                = "steam-producer-daily"
+  description         = "Triggers producer Lambda daily at 07:00 UTC — 1 hour before dbt run"
+  schedule_expression = "cron(0 7 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "producer_target" {
+  rule = aws_cloudwatch_event_rule.producer_schedule.name
+  arn  = aws_lambda_function.steam_producer.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge" {
+  statement_id  = "AllowEventBridgeInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.steam_producer.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.producer_schedule.arn
+}
