@@ -395,3 +395,94 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.producer_schedule.arn
 }
+
+# ==========================================
+# 8. CloudWatch: Alarms + SNS Notifications
+# ==========================================
+
+variable "alert_email" {
+  description = "Email address for CloudWatch alarm notifications"
+  type        = string
+}
+
+resource "aws_sns_topic" "alerts" {
+  name = "steam-tracker-alerts"
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# --- Producer Lambda: Errors ---
+resource "aws_cloudwatch_metric_alarm" "producer_errors" {
+  alarm_name          = "steam-producer-errors"
+  alarm_description   = "Producer Lambda is throwing errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions = {
+    FunctionName = aws_lambda_function.steam_producer.function_name
+  }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+# --- Producer Lambda: Duration (timeout risk) ---
+resource "aws_cloudwatch_metric_alarm" "producer_duration" {
+  alarm_name          = "steam-producer-duration"
+  alarm_description   = "Producer Lambda duration exceeds 80% of timeout (48s of 60s)"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  dimensions = {
+    FunctionName = aws_lambda_function.steam_producer.function_name
+  }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 48000
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+# --- Consumer Lambda: Errors ---
+resource "aws_cloudwatch_metric_alarm" "consumer_errors" {
+  alarm_name          = "steam-consumer-errors"
+  alarm_description   = "Consumer Lambda is throwing errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions = {
+    FunctionName = aws_lambda_function.steam_consumer.function_name
+  }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+# --- Consumer Lambda: Duration (timeout risk) ---
+resource "aws_cloudwatch_metric_alarm" "consumer_duration" {
+  alarm_name          = "steam-consumer-duration"
+  alarm_description   = "Consumer Lambda duration exceeds 80% of timeout (24s of 30s)"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  dimensions = {
+    FunctionName = aws_lambda_function.steam_consumer.function_name
+  }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 24000
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
